@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
+*.pyo
+*.db
+*.sqlite
+*.sqlite3
+.git/
+.github/
+.gitignore
+README.md
+docker-compose.yml
+*.log
+.vscode/
+.idea/

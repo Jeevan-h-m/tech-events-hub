@@ -22,14 +22,11 @@ WORKDIR /app
 # Copy installed packages from builder
 COPY --from=builder /install /usr/local
 
-# Copy application source code
-COPY main.py .
-COPY database.py .
-COPY mcp_client.py .
-COPY routers/ ./routers/
+# Copy ALL application source code at once
+COPY . .
 
 # Create data directory for SQLite database
-# Note: Use Railway Volumes (not VOLUME keyword) for persistent storage
+# Note: Use Railway Volumes for persistent storage
 # https://docs.railway.com/reference/volumes
 RUN mkdir -p /app/data
 
