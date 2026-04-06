@@ -14,7 +14,7 @@ services:
       - TICKET_TAILOR_API_KEY=${TICKET_TAILOR_API_KEY}
       - DB_PATH=/app/data/events_hub.db
     volumes:
-      - sqlite_data:/app/data
+      - sqlite_data:/app/data    # local dev only — use Railway Volumes in production
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health')"]

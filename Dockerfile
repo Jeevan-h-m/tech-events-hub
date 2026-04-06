@@ -28,9 +28,10 @@ COPY database.py .
 COPY mcp_client.py .
 COPY routers/ ./routers/
 
-# Create a volume mount point for the SQLite database
+# Create data directory for SQLite database
+# Note: Use Railway Volumes (not VOLUME keyword) for persistent storage
+# https://docs.railway.com/reference/volumes
 RUN mkdir -p /app/data
-VOLUME ["/app/data"]
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
