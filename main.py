@@ -6,7 +6,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from database import init_db
-from routers import orchestrator, events, tickets, orders, analytics
+from orchestrator import router as orchestrator_router
+from events import router as events_router
+from orders import router as orders_router
+from analytics import router as analytics_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
