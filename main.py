@@ -13,8 +13,11 @@ from analytics import router as analytics_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db()
-    print("✅ Database initialized")
+    try:
+        await init_db()
+        print("✅ Database initialized")
+    except Exception as e:
+        print("❌ DB init failed:", e)
     yield
 
 app = FastAPI(
