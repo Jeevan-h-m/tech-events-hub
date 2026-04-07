@@ -2,7 +2,7 @@
 Orchestrator Agent
 Primary coordinator. Receives user requests, plans workflows,
 delegates to sub-agents, and synthesizes final responses.
-Uses Claude claude-sonnet-4-20250514 with Ticket Tailor MCP.
+Uses Claude claude-sonnet-4-20250514 via Anthropic API.
 """
 import os
 import json
@@ -17,30 +17,27 @@ load_dotenv()
 router = APIRouter()
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-MCP_SERVER_URL = "https://mcp.tickettailor.ai/mcp"
+TICKET_TAILOR_API_KEY = os.getenv("TICKET_TAILOR_API_KEY", "")
 
-SYSTEM_PROMPT = """You are the Orchestrator Agent for "Tech Events Hub" — a multi-agent event management system.
+SYSTEM_PROMPT = """You are the Orchestrator Agent for "Tech Events Hub" — a multi-agent AI event management system built on Ticket Tailor.
 
-You coordinate a team of specialized sub-agents:
-- Event Agent: creates/manages Ticket Tailor event series and occurrences
+You coordinate 4 specialized sub-agents:
+- Event Agent: manages Ticket Tailor event series and occurrences
 - Ticket Agent: manages ticket types, pricing, bundles, vouchers
-- Orders Agent: tracks orders, issued tickets, check-ins
+- Orders Agent: tracks orders, issued tickets, and check-ins
 - Analytics Agent: generates revenue reports and insights
 
-You have direct access to the Ticket Tailor MCP tools. When the user asks you to:
-- Create/manage events → use event_management, event_series tools
-- Handle tickets/pricing → use ticket_type, bundle, voucher tools
-- Track orders → use orders_get, issued_tickets tools
-- Check-in attendees → use check_in_create
-- Get reports → use overview_get, orders_get with filters
+The user's Ticket Tailor box office is called "Tech Events Hub" (store ID: st_78746, currency: USD).
 
-Always:
-1. Understand the user's goal
-2. Break it into steps if needed
-3. Use the right MCP tools
-4. Summarize what you did clearly
+When the user asks you something, respond in this exact JSON format:
+{
+  "agent": "event_agent | ticket_agent | orders_agent | analytics_agent | orchestrator",
+  "action": "short description of what you will do",
+  "response": "your full helpful response to the user",
+  "next_steps": ["optional list of suggested follow-up actions"]
+}
 
-Be concise, professional, and action-oriented."""
+Be concise, professional, and action-oriented. Always refer to real Ticket Tailor capabilities."""
 
 
 class OrchestratorRequest(BaseModel):
@@ -52,6 +49,8 @@ class OrchestratorResponse(BaseModel):
     result: str
     steps_taken: list
     agent: str = "orchestrator"
+    delegated_to: str = ""
+    next_steps: list = []
 
 
 @router.post("/run", response_model=OrchestratorResponse)
@@ -65,82 +64,142 @@ async def run_orchestrator(req: OrchestratorRequest):
     await log_agent_action("orchestrator", "receive_request", {"input": req.user_input})
     steps.append({"step": 1, "action": "request_received", "agent": "orchestrator"})
 
-    # Step 2: Call Claude API with MCP tools
-    result = await _call_claude_with_mcp(req.user_input, steps)
+    # Step 2: Call Claude API to plan and respond
+    claude_result = await _call_claude(req.user_input)
+    steps.append({"step": 2, "action": "claude_planning_complete", "agent": "orchestrator"})
 
-    # Step 3: Save workflow to DB
+    # Step 3: Parse Claude's structured response
+    delegated_to = claude_result.get("agent", "orchestrator")
+    action = claude_result.get("action", "")
+    response_text = claude_result.get("response", "Task completed.")
+    next_steps = claude_result.get("next_steps", [])
+
+    steps.append({"step": 3, "action": f"delegated_to: {delegated_to} — {action}", "agent": "orchestrator"})
+
+    # Step 4: Log delegation
+    await log_agent_action("orchestrator", f"delegated_to_{delegated_to}", {"action": action})
+
+    # Step 5: Save workflow to DB
     await save_workflow(
         workflow="orchestrator_run",
         user_input=req.user_input,
         steps=steps,
-        final_result={"result": result}
+        final_result={"result": response_text, "delegated_to": delegated_to}
     )
-    steps.append({"step": len(steps) + 1, "action": "workflow_saved", "agent": "orchestrator"})
+    steps.append({"step": 4, "action": "workflow_saved_to_db", "agent": "orchestrator"})
 
-    return OrchestratorResponse(result=result, steps_taken=steps)
+    return OrchestratorResponse(
+        result=response_text,
+        steps_taken=steps,
+        agent="orchestrator",
+        delegated_to=delegated_to,
+        next_steps=next_steps
+    )
 
 
-async def _call_claude_with_mcp(user_input: str, steps: list) -> str:
+async def _call_claude(user_input: str) -> dict:
     """
-    Calls Claude API with Ticket Tailor MCP server attached.
-    Claude will autonomously use MCP tools to fulfill the request.
+    Calls Claude claude-sonnet-4-20250514 via Anthropic API.
+    Returns structured JSON response for agent routing.
     """
+    if not ANTHROPIC_API_KEY:
+        return {
+            "agent": "orchestrator",
+            "action": "error",
+            "response": "ANTHROPIC_API_KEY is not set. Please add it to Railway environment variables.",
+            "next_steps": ["Add ANTHROPIC_API_KEY in Railway → Variables tab"]
+        }
+
     payload = {
         "model": "claude-sonnet-4-20250514",
         "max_tokens": 1024,
         "system": SYSTEM_PROMPT,
-        "messages": [{"role": "user", "content": user_input}],
-        "mcp_servers": [
-            {
-                "type": "url",
-                "url": MCP_SERVER_URL,
-                "name": "ticket-tailor"
-            }
-        ]
+        "messages": [{"role": "user", "content": user_input}]
     }
 
     headers = {
         "x-api-key": ANTHROPIC_API_KEY,
         "anthropic-version": "2023-06-01",
-        "anthropic-beta": "mcp-client-2025-04-04",
         "Content-Type": "application/json"
     }
 
-    async with httpx.AsyncClient(timeout=60) as client:
-        response = await client.post(
-            "https://api.anthropic.com/v1/messages",
-            json=payload,
-            headers=headers
-        )
-        response.raise_for_status()
-        data = response.json()
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                json=payload,
+                headers=headers
+            )
+            response.raise_for_status()
+            data = response.json()
 
-    # Extract text from response
-    full_text = ""
-    tool_uses = []
-    for block in data.get("content", []):
-        if block.get("type") == "text":
-            full_text += block["text"]
-        elif block.get("type") == "tool_use":
-            tool_uses.append(block.get("name", "unknown_tool"))
+        # Extract text from response
+        raw_text = ""
+        for block in data.get("content", []):
+            if block.get("type") == "text":
+                raw_text += block["text"]
 
-    # Log tool uses as steps
-    for tool in tool_uses:
-        steps.append({"action": f"mcp_tool: {tool}", "agent": "orchestrator"})
-        await log_agent_action("orchestrator", f"used_tool: {tool}", {"tool": tool})
+        # Try to parse as JSON
+        try:
+            # Strip markdown code fences if present
+            clean = raw_text.strip()
+            if clean.startswith("```"):
+                clean = clean.split("```")[1]
+                if clean.startswith("json"):
+                    clean = clean[4:]
+            return json.loads(clean.strip())
+        except json.JSONDecodeError:
+            # If not JSON, wrap the raw text
+            return {
+                "agent": "orchestrator",
+                "action": "direct_response",
+                "response": raw_text,
+                "next_steps": []
+            }
 
-    return full_text or "Orchestrator completed the task."
+    except httpx.HTTPStatusError as e:
+        error_body = e.response.text if e.response else str(e)
+        await log_agent_action("orchestrator", "claude_api_error", {"error": error_body}, status="error")
+        return {
+            "agent": "orchestrator",
+            "action": "api_error",
+            "response": f"Claude API error: {e.response.status_code}. Check your ANTHROPIC_API_KEY in Railway variables.",
+            "next_steps": ["Verify ANTHROPIC_API_KEY is correctly set in Railway → Variables"]
+        }
+    except Exception as e:
+        await log_agent_action("orchestrator", "unexpected_error", {"error": str(e)}, status="error")
+        return {
+            "agent": "orchestrator",
+            "action": "unexpected_error",
+            "response": f"Unexpected error: {str(e)}",
+            "next_steps": []
+        }
 
 
 @router.get("/logs")
 async def get_logs():
     """Returns recent agent action logs from DB."""
     from database import get_recent_logs
-    return {"logs": await get_recent_logs(20)}
+    logs = await get_recent_logs(20)
+    return {"logs": logs}
 
 
 @router.get("/history")
 async def get_history():
     """Returns workflow run history from DB."""
     from database import get_workflow_history
-    return {"history": await get_workflow_history(10)}
+    history = await get_workflow_history(10)
+    return {"history": history}
+
+
+@router.get("/status")
+async def get_status():
+    """Returns system status and environment check."""
+    return {
+        "system": "Tech Events Hub Multi-Agent System",
+        "anthropic_key_set": bool(ANTHROPIC_API_KEY),
+        "ticket_tailor_key_set": bool(TICKET_TAILOR_API_KEY),
+        "agents": ["orchestrator", "event_agent", "ticket_agent", "orders_agent", "analytics_agent"],
+        "mcp": "Ticket Tailor (st_78746)",
+        "status": "running"
+    }
