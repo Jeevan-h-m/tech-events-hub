@@ -31,11 +31,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(orchestrator.router, prefix="/orchestrator", tags=["Orchestrator"])
-app.include_router(events.router,       prefix="/events",       tags=["Event Agent"])
-app.include_router(tickets.router,      prefix="/tickets",      tags=["Ticket Agent"])
-app.include_router(orders.router,       prefix="/orders",       tags=["Orders Agent"])
-app.include_router(analytics.router,    prefix="/analytics",    tags=["Analytics Agent"])
+app.include_router(orchestrator_router, prefix="/orchestrator", tags=["Orchestrator"])
+app.include_router(events_router,       prefix="/events",       tags=["Event Agent"])
+app.include_router(orders_router,       prefix="/orders",       tags=["Orders Agent"])
+app.include_router(analytics_router,    prefix="/analytics",    tags=["Analytics Agent"])
 
 @app.get("/")
 async def root():
