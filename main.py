@@ -10,6 +10,7 @@ from orchestrator import router as orchestrator_router
 from events import router as events_router
 from orders import router as orders_router
 from analytics import router as analytics_router
+from fastapi.responses import FileResponse
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
