@@ -561,7 +561,7 @@
 
 <script>
 // ── CONFIG ──────────────────────────────────────────────
-let API_BASE = localStorage.getItem('api_base') || 'https://tech-events-hub-production.up.railway.app';
+let API_BASE = '';
 document.getElementById('api-base-input').value = API_BASE;
 document.getElementById('api-url-display').textContent = API_BASE.replace('https://','');
 
@@ -593,7 +593,7 @@ function showPage(name) {
 
 // ── API HELPERS ──────────────────────────────────────────
 async function apiFetch(path, options = {}) {
-  const res = await fetch(API_BASE + path, {
+  const res = await fetch(path, {
     headers: {'Content-Type': 'application/json'},
     ...options
   });

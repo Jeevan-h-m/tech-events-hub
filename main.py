@@ -51,3 +51,8 @@ async def root():
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+from fastapi.responses import FileResponse
+
+@app.get("/")
+async def serve_frontend():
+    return FileResponse("index.html")
